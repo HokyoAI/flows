@@ -1,0 +1,12 @@
+[package]
+name = "flows"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+flows-core = { version = "0.1.0", path = "../flows-core", default-features = false }
+
+[features]
+default = ["std", "flows-core/default"]
+std = []
+embassy = ["flows-core/embassy"]
