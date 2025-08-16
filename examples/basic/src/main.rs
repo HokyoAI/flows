@@ -4,9 +4,9 @@ const CHANNEL_SIZE: usize = 8;
 const DATA_CHANNEL_SIZE: usize = 16;
 
 async fn example(
-    init: (),
+    _init: (),
     _ctrl: flows::FnController<TokioRuntime, (), CHANNEL_SIZE>,
-    data: flows::FnDataHandle<(), (), DATA_CHANNEL_SIZE>,
+    _data: flows::FnDataHandle<(), (), DATA_CHANNEL_SIZE>,
 ) -> () {
     println!("Task: Starting interactive workflow");
 
