@@ -4,22 +4,15 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 /// A controllable future that can be paused, resumed, and cancelled
-pub struct Flow<F, U, const N: usize>
-where
-    F: Future,
-    U: 'static,
-{
+pub struct Flow<F: Future, U: 'static, const CHAN_N: usize> {
     inner: F,
-    ctrl: FlowFutureController<U, N>,
+    ctrl: FlowFutureController<U, CHAN_N>,
     state: FlowState,
 }
 
-impl<F, U, const N: usize> Flow<F, U, N>
-where
-    F: Future,
-{
+impl<F: Future, U, const CHAN_N: usize> Flow<F, U, CHAN_N> {
     /// Create a new Flow wrapping the given future
-    pub fn new(future: F, ctrl: FlowFutureController<U, N>) -> Self {
+    pub fn new(future: F, ctrl: FlowFutureController<U, CHAN_N>) -> Self {
         Self {
             inner: future,
             ctrl,
@@ -28,11 +21,7 @@ where
     }
 }
 
-impl<F, U, const N: usize> Future for Flow<F, U, N>
-where
-    F: Future,
-    U: 'static,
-{
+impl<F: Future, U, const CHAN_N: usize> Future for Flow<F, U, CHAN_N> {
     type Output = F::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

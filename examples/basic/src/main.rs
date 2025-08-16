@@ -1,8 +1,13 @@
 use flows::runtime::tokio::TokioRuntime;
 
-const QUEUE_SIZE: usize = 8;
+const CHANNEL_SIZE: usize = 8;
+const DATA_CHANNEL_SIZE: usize = 16;
 
-async fn example(_ctrl: flows_core::core::FnController<TokioRuntime, (), QUEUE_SIZE>) -> () {
+async fn example(
+    init: (),
+    _ctrl: flows::FnController<TokioRuntime, (), CHANNEL_SIZE>,
+    data: flows::FnDataHandle<(), (), DATA_CHANNEL_SIZE>,
+) -> () {
     println!("Task: Starting interactive workflow");
 
     for i in 1..6 {
@@ -16,8 +21,8 @@ async fn example(_ctrl: flows_core::core::FnController<TokioRuntime, (), QUEUE_S
 static RUNTIME: std::sync::LazyLock<TokioRuntime> =
     std::sync::LazyLock::new(|| TokioRuntime::new());
 
-static SLOT_1: std::sync::LazyLock<flows_core::core::Slot<(), QUEUE_SIZE>> =
-    std::sync::LazyLock::new(|| flows_core::core::Slot::default());
+static SLOT_1: std::sync::LazyLock<flows::Slot<(), (), (), CHANNEL_SIZE, DATA_CHANNEL_SIZE>> =
+    std::sync::LazyLock::new(|| flows::Slot::default());
 
 #[tokio::main]
 async fn main() {
@@ -27,11 +32,11 @@ async fn main() {
     let slot = &*SLOT_1;
     let runtime = &*RUNTIME;
 
-    let fn_controller = flows_core::core::FnController::new(slot, runtime);
-    let flow_func_ctrl = flows_core::core::FlowFutureController::new(slot);
-    let user_ctrl = flows_core::core::UserController::new(slot);
-    let future = example(fn_controller);
-    let flow = flows_core::core::Flow::new(future, flow_func_ctrl);
+    let (fn_data_handle, user_data_handle) = slot.handles();
+    let (fn_ctrl, flow_func_ctrl, user_ctrl) = slot.ctrls(runtime);
+
+    let future = example((), fn_ctrl, fn_data_handle);
+    let flow = flows::Flow::new(future, flow_func_ctrl);
 
     let handle = tokio::spawn(flow);
     tokio::time::sleep(std::time::Duration::from_millis(3500)).await;

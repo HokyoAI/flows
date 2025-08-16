@@ -1,96 +1,58 @@
-use super::{AtomicWaker, FlowEvent, FlowEventHandler, FlowState, Handler};
-use anyhow::Result;
-use core::pin::Pin;
-use core::task::{Context, Poll, Waker};
-use heapless::mpmc::MpMcQueue;
+use super::{
+    BaseController, DataChannel, FlowFutureController, FnController, FnDataHandle, Reset,
+    UserController, UserDataHandle,
+};
+use crate::runtime::FlowRuntime;
 
-pub struct Slot<U, const N: usize> {
-    channel: MpMcQueue<FlowEvent<U>, N>,
-    handler: FlowEventHandler,
-    waker: AtomicWaker,
+pub struct Slot<U: 'static, UD: 'static, FD: 'static, const CHAN_N: usize, const DATA_N: usize> {
+    ctrl: BaseController<U, CHAN_N>,
+    data: DataChannel<UD, FD, DATA_N>,
 }
 
-impl<U, const N: usize> Default for Slot<U, N> {
+impl<U: 'static, UD: 'static, FD: 'static, const CHAN_N: usize, const DATA_N: usize> Default
+    for Slot<U, UD, FD, CHAN_N, DATA_N>
+{
     fn default() -> Self {
         Slot {
-            channel: MpMcQueue::new(),
-            handler: FlowEventHandler::default(),
-            waker: AtomicWaker::new(),
+            ctrl: BaseController::default(),
+            data: DataChannel::default(),
         }
     }
 }
 
-impl<U, const N: usize> Slot<U, N> {
-    // fn with_waker_lock<F, R>(&self, f: F) -> R
-    // where
-    //     F: FnOnce() -> R,
-    // {
-    //     // Simple spinlock
-    //     while self
-    //         .waker_lock
-    //         .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-    //         .is_err()
-    //     {
-    //         core::hint::spin_loop();
-    //     }
+impl<U: 'static, UD: 'static, FD: 'static, const CHAN_N: usize, const DATA_N: usize> Reset
+    for Slot<U, UD, FD, CHAN_N, DATA_N>
+{
+    fn reset(&self) {
+        self.ctrl.reset();
+        self.data.reset();
+    }
+}
 
-    //     let result = f();
-
-    //     self.waker_lock.store(false, Ordering::Release);
-    //     result
-    // }
-
-    /// used by the user and function to send events and wake the flow future
-    pub fn send(&self, item: FlowEvent<U>) -> Result<(), FlowEvent<U>> {
-        // maybe should check if waker exists before enqueue, or use a ready bit
-        match self.channel.enqueue(item) {
-            Ok(()) => {
-                self.waker.wake();
-                Ok(())
-            }
-            Err(item) => Err(item),
-        }
+impl<U: 'static, UD: 'static, FD: 'static, const CHAN_N: usize, const DATA_N: usize>
+    Slot<U, UD, FD, CHAN_N, DATA_N>
+{
+    pub fn handles(
+        &'static self,
+    ) -> (FnDataHandle<UD, FD, DATA_N>, UserDataHandle<UD, FD, DATA_N>) {
+        (
+            FnDataHandle::new(&self.data.fn_data, &self.data.user_data),
+            UserDataHandle::new(&self.data.user_data, &self.data.fn_data),
+        )
     }
 
-    /// used by the flow future
-    /// consumes all events currently in the queue, possibly executing some code for each state transitioned to
-    /// updates the waker to be the one the future was polled with
-    pub fn consume<F: Future>(
-        &self,
-        current: &FlowState,
-        future: Pin<&mut F>,
-        waker: &Waker,
-    ) -> (FlowState, Poll<F::Output>) {
-        let mut state = current.clone();
-
-        while let Some(event) = self.channel.dequeue() {
-            state = self.handler.transition(&state, &event);
-            // do not know why Rust wants the government name here
-            <FlowEventHandler as Handler<FlowState, FlowEvent<U>>>::transient_exec(
-                &self.handler,
-                &state,
-            );
-
-            use std::println;
-            println!("Transitioning from {:?} to {:?}", current, state);
-        }
-
-        self.waker.register(waker);
-
-        let mut cx = Context::from_waker(waker);
-        let output = <FlowEventHandler as Handler<FlowState, FlowEvent<U>>>::exec(
-            &self.handler,
-            &state,
-            future,
-            &mut cx,
-        );
-        (state, output)
-    }
-
-    /// resets the slot for use with a different flow
-    pub fn reset(&self) {
-        while let Some(_) = self.channel.dequeue() {}
-
-        // should find some way to invalidate the waker at this point, maybe.
+    pub fn ctrls<R: FlowRuntime>(
+        &'static self,
+        runtime: &'static R,
+    ) -> (
+        FnController<R, U, CHAN_N>,
+        FlowFutureController<U, CHAN_N>,
+        UserController<U, CHAN_N>,
+    ) {
+        (
+            FnController::new(&self.ctrl, runtime),
+            FlowFutureController::new(&self.ctrl),
+            UserController::new(&self.ctrl),
+        )
     }
 }
